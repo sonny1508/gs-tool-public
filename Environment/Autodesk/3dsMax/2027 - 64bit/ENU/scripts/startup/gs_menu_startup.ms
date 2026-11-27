@@ -1,0 +1,620 @@
+-- Startup script to add GSTools to the 3ds Max menu bar
+-- Save this file as gs_menu_startup.ms in your 3ds Max startup scripts folder
+--
+-- This file is identical in every 3ds Max version tree. 3ds Max 2025 replaced the
+-- whole menu system, so there are two builders below fed by one shared layout:
+--   * Max 2023-2024 : legacy menuMan (edits the live menu bar in place)
+--   * Max 2025+     : CUI menu manager (#cuiRegisterMenus callback). menuMan does
+--                     not exist there, which is what the "getMainMenuBar in
+--                     undefined" error on 2025 was.
+
+-- Create a function to log messages
+fn logMessage msg =
+(
+    format "[GSTools] %: %\n" (timestamp()) msg
+)
+
+-- ============================================================================
+--  MENU LAYOUT (shared by both builders)
+-- ============================================================================
+-- Each tool is the name of a macroScript registered under category:"GSTools" by
+-- the .mcr files in usermacros/.
+--
+-- The GUIDs are only read on 2025+, where every menu and menu item is keyed by a
+-- stable id (the user's saved menu customisations point at those ids). Once
+-- deployed an id must never change; give every new folder or tool a fresh GUID.
+global gsMacroCategory = "GSTools"
+global gsMenuTitle = "GSTools"
+global gsMenuId = "05f1db4d-4e7d-422c-aece-b33b8fdd48dc"
+
+global gsMenuLayout = #(
+    -- #("FolderName", "folder GUID", #( #("MacroName", "item GUID"), ... ))
+    #("01_General", "fce4e591-5a6a-490e-89d3-bbfc58fdc5ac", #(
+        #("Material_ID_Remapper", "6477e6f6-a69a-4a56-8c23-6da81fd4ee4f"),
+        #("Poly_Smoother",        "fa3be31b-6e72-4170-b508-b66291c4d07a"),
+        #("Texel_Density",        "27eda269-9269-47cb-84b6-e156811737a6"),
+        #("Material_Manager",     "32ee7e30-d859-4197-8df8-02213cf61855")
+    )),
+    #("02_UV", "03f46d2b-39b1-4ac2-a20d-45c9df6af35d", #(
+        #("UV_Tools",             "a071431a-7302-4935-842e-2ad8e587abe5")
+    )),
+    #("03_Normals", "beaf19f1-279c-4e32-b069-d0076fb685b2", #(
+        #("Custom_Normals_Tool",  "f3dcba31-cc09-4110-9670-63a2f88c8dcb")
+    )),
+    #("04_Review", "2f84173d-b601-46a1-aaf6-ef288197e56c", #(
+        #("Scene_Checker",        "e67dddad-0075-4dc8-be0d-b38e749314a5")
+    )),
+    #("05_File I/O", "8fbcfc1f-e300-4b14-998c-84ec5dbbe6b0", #(
+        #("GS_File_Exporter",     "aba1dae5-4d29-4d79-a306-16451493422e"),
+        #("GS_File_Transfer",     "3dc350fa-1fb6-462d-b341-16d80d9b01b6")
+    ))
+    -- Add more folders here as needed
+)
+
+-- Project tools are studio-only, and the public repo leaves common\gstools\projects
+-- out, so their folder lives in projects_menu.ms there and is appended here when
+-- that file is deployed. Never list a project tool in the layout above.
+global gsProjectsMenuFolder = undefined
+
+fn gsAddProjectsMenu =
+(
+    -- #userScripts is <root>\<year> - 64bit\ENU\scripts; common\ sits in <root>.
+    local maxRoot = pathConfig.removePathLeaf (pathConfig.removePathLeaf (pathConfig.removePathLeaf (getDir #userScripts)))
+    local menuFile = pathConfig.appendPath maxRoot "common\\gstools\\projects\\projects_menu.ms"
+    if doesFileExist menuFile do
+    (
+        fileIn menuFile
+        if gsProjectsMenuFolder != undefined do append gsMenuLayout gsProjectsMenuFolder
+    )
+)
+
+gsAddProjectsMenu()
+
+-- ============================================================================
+--  3ds Max 2023-2024 : legacy menuMan
+-- ============================================================================
+
+-- Function to remove existing GSTools menu
+fn removeGSToolsMenu =
+(
+    logMessage "Attempting to remove existing GSTools menu"
+
+    try
+    (
+        -- Get the main menu bar
+        local mainMenuBar = menuMan.getMainMenuBar()
+
+        if mainMenuBar == undefined then
+        (
+            logMessage "ERROR: Could not get main menu bar for removal"
+            return false
+        )
+
+        -- STEP 1: Detach our top-level entries FROM THE MENU BAR.
+        --
+        -- mainMenuBar.numItems / getItem enumerate the items ON THE MENU BAR (not
+        -- the global registry), and each bar entry is a SubMenuItem whose
+        -- .getSubMenu gives the actual menu. unRegisterMenu alone does NOT reliably
+        -- drop the visible bar entry, which is why a stale "GSTools" survived each
+        -- restart and a fresh one got appended -> duplicate menus. We must remove
+        -- the bar item by position.
+        --
+        -- Iterate in reverse so positions stay valid as we remove. Re-scan in a
+        -- loop because removing shifts indices and there may be >1 duplicate.
+        local removedAny = true
+        local pass = 0
+        while removedAny and pass < 50 do
+        (
+            removedAny = false
+            pass += 1
+            for i = (mainMenuBar.numItems()) to 1 by -1 do
+            (
+                local item = mainMenuBar.getItem i
+                if item == undefined do continue
+
+                local sub = item.getSubMenu()
+                local title = if sub != undefined then sub.getTitle() else (item.getTitle())
+
+                if title == gsMenuTitle then
+                (
+                    try
+                    (
+                        mainMenuBar.removeItemByPosition i
+                        removedAny = true
+                        logMessage ("Removed GSTools entry from menu bar at position " + i as string)
+                    )
+                    catch
+                    (
+                        logMessage ("Could not remove menu-bar item: " + (getCurrentException()))
+                    )
+                )
+            )
+        )
+
+        -- STEP 2: Unregister the now-orphaned GSTools menu(s) AND submenus from the
+        -- registry so createMenu starts clean. menuMan.findMenu returns the first
+        -- match only, so loop until none of our owned names remain.
+        try
+        (
+            logMessage "Unregistering orphaned GSTools menus from registry"
+
+            local ownedMenuNames = #(gsMenuTitle)
+            for folderInfo in gsMenuLayout do append ownedMenuNames folderInfo[1]
+
+            removedAny = true
+            pass = 0
+            while removedAny and pass < 50 do
+            (
+                removedAny = false
+                pass += 1
+                for nm in ownedMenuNames do
+                (
+                    local m = menuMan.findMenu nm
+                    if m != undefined then
+                    (
+                        try
+                        (
+                            menuMan.unRegisterMenu m
+                            removedAny = true
+                            logMessage ("Unregistered menu: " + nm)
+                        )
+                        catch
+                        (
+                            logMessage ("Could not unregister menu: " + (getCurrentException()))
+                        )
+                    )
+                )
+            )
+        )
+        catch
+        (
+            logMessage ("Error unregistering menu: " + (getCurrentException()))
+        )
+
+        -- Update the menu bar after removal
+        try
+        (
+            menuMan.updateMenuBar()
+            logMessage "Menu bar updated after removal"
+
+            -- Clear the installation flag
+            if getAppData rootNode 12345 == "GSToolsMenuInstalled" then
+            (
+                setAppData rootNode 12345 ""
+                logMessage "Cleared GSToolsMenuInstalled flag"
+            )
+
+            return true
+        )
+        catch
+        (
+            logMessage ("Error updating menu bar after removal: " + (getCurrentException()))
+            return false
+        )
+    )
+    catch
+    (
+        logMessage ("CRITICAL ERROR in removeGSToolsMenu: " + (getCurrentException()))
+        return false
+    )
+)
+
+-- Function to create submenus with macros
+fn createSubmenusWithMacros gsToolsMenu =
+(
+    try
+    (
+        -- Create each folder and add macros
+        for folderInfo in gsMenuLayout do
+        (
+            local folderName = folderInfo[1]
+            local toolList = folderInfo[3]
+
+            -- Skip empty folders
+            if toolList.count == 0 then continue
+
+            -- Create folder submenu
+            local folderMenu = menuMan.createMenu folderName
+            logMessage ("Created submenu for folder: " + folderName)
+
+            -- Add each macro to the folder menu
+            for toolInfo in toolList do
+            (
+                local macroName = toolInfo[1]
+                try
+                (
+                    local actionItem = menuMan.createActionItem macroName gsMacroCategory
+                    if actionItem != undefined then
+                    (
+                        folderMenu.addItem actionItem -1
+                        logMessage ("Added " + macroName + " to " + folderName + " submenu")
+                    )
+                    else
+                        logMessage ("WARNING: Could not create menu item for: " + macroName)
+                )
+                catch
+                (
+                    logMessage ("Error adding macro " + macroName + " to menu: " + (getCurrentException()))
+                )
+            )
+
+            -- Create submenu item and add to main GSTools menu
+            local subMenuItem = menuMan.createSubMenuItem folderName folderMenu
+            if subMenuItem != undefined then
+            (
+                gsToolsMenu.addItem subMenuItem -1
+                logMessage ("Added " + folderName + " submenu to GSTools menu")
+            )
+        )
+
+        return true
+    )
+    catch
+    (
+        logMessage ("Error creating submenus: " + (getCurrentException()))
+        return false
+    )
+)
+
+-- Create the GSTools menu with submenus
+fn createGSToolsMenu =
+(
+    try
+    (
+        -- Always purge any existing GSTools menus/submenus first. This is a safe
+        -- no-op when none exist, and unlike the old findMenu-based check it clears
+        -- ALL duplicates that accumulate across restarts.
+        logMessage "Removing any existing GSTools menus before rebuild"
+        removeGSToolsMenu()
+
+        logMessage "Creating new GSTools menu"
+
+        -- Get the main menu bar
+        logMessage "Getting main menu bar"
+        local mainMenuBar = menuMan.getMainMenuBar()
+
+        if mainMenuBar == undefined then
+        (
+            logMessage "ERROR: Could not get main menu bar"
+            return false
+        )
+
+        -- Create a new menu
+        logMessage "Creating new GSTools menu"
+        local gsToolsMenu = undefined
+
+        try
+        (
+            gsToolsMenu = menuMan.createMenu gsMenuTitle
+            logMessage "GSTools menu object created"
+        )
+        catch
+        (
+            logMessage ("Error creating menu: " + (getCurrentException()))
+            return false
+        )
+
+        if gsToolsMenu == undefined then
+        (
+            logMessage "ERROR: Failed to create GSTools menu object"
+            return false
+        )
+
+        -- Create submenus and add macros
+        createSubmenusWithMacros gsToolsMenu
+
+        -- Create a submenu item for the main GSTools menu
+        logMessage "Creating main GSTools submenu item"
+        local subMenuItem = undefined
+
+        try
+        (
+            subMenuItem = menuMan.createSubMenuItem gsMenuTitle gsToolsMenu
+            logMessage "GSTools submenu item created"
+        )
+        catch
+        (
+            logMessage ("Error creating main submenu item: " + (getCurrentException()))
+            return false
+        )
+
+        if subMenuItem == undefined then
+        (
+            logMessage "ERROR: Failed to create main submenu item"
+            return false
+        )
+
+        -- Add submenu to main menu bar
+        logMessage "Adding GSTools submenu to main menu bar"
+
+        try
+        (
+            mainMenuBar.addItem subMenuItem -1
+            logMessage "Added GSTools menu to main menu bar"
+        )
+        catch
+        (
+            logMessage ("Error adding submenu to main menu bar: " + (getCurrentException()))
+            return false
+        )
+
+        -- Update the menu bar
+        logMessage "Updating menu bar"
+
+        try
+        (
+            menuMan.updateMenuBar()
+            logMessage "Menu bar updated successfully"
+
+            -- Set a flag to indicate menu has been installed
+            setAppData rootNode 12345 "GSToolsMenuInstalled"
+            logMessage "Set GSToolsMenuInstalled flag"
+
+            return true
+        )
+        catch
+        (
+            logMessage ("Error updating menu bar: " + (getCurrentException()))
+            return false
+        )
+    )
+    catch
+    (
+        -- Print the error message for debugging
+        logMessage ("CRITICAL ERROR in createGSToolsMenu: " + (getCurrentException()))
+        return false
+    )
+)
+
+-- ============================================================================
+--  3ds Max 2025+ : CUI menu manager
+-- ============================================================================
+-- Menus are no longer edited in place. Every time Max loads its menus (startup,
+-- workspace switch, menu-editor reset) it rebuilds the whole tree from its config
+-- and fires #cuiRegisterMenus so scripts can add their items to that fresh tree.
+-- So there is nothing to purge and no duplicates to chase: register a callback
+-- that adds GSTools, and Max calls it every time it rebuilds.
+
+-- Action table id of macroScripts; their action ids are "MacroName`Category".
+global gsMacroActionTable = 647394
+global gsCuiMenuBuilt = false
+
+fn gsBuildCuiMenu =
+(
+    try
+    (
+        local menuMgr = callbacks.notificationParam()
+        local gsToolsMenu = menuMgr.mainMenuBar.CreateSubMenu gsMenuId gsMenuTitle
+
+        for folderInfo in gsMenuLayout do
+        (
+            local folderName = folderInfo[1]
+            local toolList = folderInfo[3]
+            if toolList.count == 0 then continue
+
+            local folderMenu = gsToolsMenu.CreateSubMenu folderInfo[2] folderName
+            for toolInfo in toolList do
+            (
+                local macroName = toolInfo[1]
+                try
+                (
+                    local item = folderMenu.CreateAction toolInfo[2] gsMacroActionTable (macroName + "`" + gsMacroCategory)
+                    if item == undefined do
+                        logMessage ("WARNING: Could not create menu item for: " + macroName)
+                )
+                catch
+                (
+                    logMessage ("Error adding macro " + macroName + " to menu: " + (getCurrentException()))
+                )
+            )
+        )
+
+        gsCuiMenuBuilt = true
+        logMessage "GSTools menu added to main menu bar"
+    )
+    catch
+    (
+        logMessage ("CRITICAL ERROR in gsBuildCuiMenu: " + (getCurrentException()))
+    )
+)
+
+-- Safety net, runs once Max has finished starting. Max is expected to load its
+-- menus after startup scripts run, so gsBuildCuiMenu has normally fired by now.
+-- If it has not, the menus were loaded before this script registered, so reload
+-- them to make #cuiRegisterMenus fire again. CuiMenuMgr is the interface name in
+-- MenuMan.dll; if it is not reachable as a global, the log line below says so.
+fn gsCheckCuiMenu =
+(
+    if not gsCuiMenuBuilt then
+    (
+        logMessage "#cuiRegisterMenus has not fired since registration, forcing a menu reload"
+        try
+        (
+            CuiMenuMgr.LoadConfiguration (CuiMenuMgr.GetCurrentConfiguration())
+        )
+        catch
+        (
+            logMessage ("Could not reload menus: " + (getCurrentException()))
+        )
+    )
+)
+
+fn gsRegisterCuiMenu =
+(
+    -- Replace any earlier registration so re-running this script never stacks callbacks.
+    -- gsCheckCuiMenu runs from gsAfterStartup (see HOTKEYS): #postSystemStartup
+    -- doesn't fire for callbacks added from a user startup script on 2025.
+    callbacks.removeScripts id:#GSToolsMenu
+    callbacks.addScript #cuiRegisterMenus gsBuildCuiMenu id:#GSToolsMenu
+    logMessage "Registered GSTools menu callback"
+)
+
+-- ============================================================================
+--  HOTKEYS (every version: 2023+ all use .hsx hotkey sets)
+-- ============================================================================
+-- MAXScript has no call to bind a single key, so the artist's active hotkey set
+-- is copied into GSPipeline.hsx with the keys below added, and that copy is made
+-- the active set. It's redone at every launch from whatever set is active, so
+-- what the artist changes in the Hotkey Editor is kept. A key the artist has
+-- bound to something else, or a GSPipeline key they removed, is left alone.
+-- (The macros themselves are still category GSTools, so that's in the ids:
+-- renaming the category is part of the GSTools -> GSPipeline transition TODO.)
+--
+-- An .hsx holds only the changes from Max's factory keys: <Assign_Hotkey
+-- Shortcut="Ctrl+G" Id="<action table>-<action id>"/>. Macros are table 647394,
+-- action "MacroName`Category" (as in the shipped LegacyDefaultUI-2019.kbdx).
+-- Ctrl+Shift+G isn't a factory key in 2023-2027.
+global gsHotkeys = #(
+    -- #("Shortcut", "MacroName")
+    #("Ctrl+Shift+G", "GS_File_Transfer")
+)
+
+fn gsHotkeyFile =
+(
+    -- #userScripts is ...\<year> - 64bit\ENU\scripts; the set goes in ...\ENU\GSPipeline
+    pathConfig.appendPath (pathConfig.removePathLeaf (getDir #userScripts)) "GSPipeline\\GSPipeline.hsx"
+)
+
+-- The artist's active set as an XmlDocument, or an empty one. undefined when it
+-- can't be read, so nothing gets overwritten.
+fn gsReadHotkeySet current =
+(
+    local doc = dotNetObject "System.Xml.XmlDocument"
+    if current == undefined or current == "" or not (doesFileExist current) then
+    (
+        doc.LoadXml "<?xml version=\"1.0\" encoding=\"UTF-8\"?><MaxHotkeyTransformations/>"
+        doc
+    )
+    else if (getFilenameType current) != ".hsx" then
+    (
+        logMessage ("Active hotkey file isn't an .hsx set, leaving hotkeys alone: " + current)
+        undefined
+    )
+    else
+    (
+        doc.Load current
+        if doc.DocumentElement == undefined or doc.DocumentElement.Name != "MaxHotkeyTransformations" then
+        (
+            logMessage ("Active hotkey set not understood, leaving hotkeys alone: " + current)
+            undefined
+        )
+        else doc
+    )
+)
+
+fn gsSetupHotkeys =
+(
+    try
+    (
+        local target = gsHotkeyFile()
+        local current = actionMan.getKeyboardFile()
+        logMessage ("Active hotkey set: " + (current as string))
+        local doc = gsReadHotkeySet current
+        if doc != undefined then
+        (
+            local root = doc.DocumentElement
+            local assigns = root.SelectNodes "Assign_Hotkey"
+            local unassigns = root.SelectNodes "Unassign_Hotkey"
+            local added = 0
+            for hk in gsHotkeys do
+            (
+                local shortcut = hk[1]
+                local actionId = "647394-" + hk[2] + "`" + gsMacroCategory
+                local bound = false
+                local takenBy = undefined
+                local removed = false
+                -- MAXScript string == ignores case, as Max does for these.
+                for i = 0 to assigns.Count - 1 do
+                (
+                    local el = assigns.Item i
+                    local elKey = el.GetAttribute "Shortcut"
+                    if elKey == shortcut then
+                    (
+                        if (el.GetAttribute "Id") == actionId then bound = true
+                        else if takenBy == undefined then takenBy = el.GetAttribute "Id"
+                    )
+                )
+                for i = 0 to unassigns.Count - 1 do
+                    if ((unassigns.Item i).GetAttribute "Id") == actionId do removed = true
+
+                if bound then
+                    logMessage (shortcut + " already runs " + hk[2])
+                else if removed then
+                    logMessage (hk[2] + "'s hotkey was removed in the Hotkey Editor; left off")
+                else if takenBy != undefined then
+                    logMessage ("WARNING: " + shortcut + " is already bound to " + takenBy + "; " + hk[2] + " gets no hotkey")
+                else
+                (
+                    local el = doc.CreateElement "Assign_Hotkey"
+                    el.SetAttribute "Shortcut" shortcut
+                    el.SetAttribute "Id" actionId
+                    root.AppendChild el
+                    added += 1
+                    logMessage ("Binding " + shortcut + " to " + hk[2])
+                )
+            )
+
+            -- Nothing new: the active set (GSPipeline or the artist's own) already has
+            -- everything it can, so it isn't rewritten or switched.
+            if added > 0 then
+            (
+                root.SetAttribute "Description" "GSPipeline"
+                root.RemoveAttribute "Locked"   -- copied from a shipped set, which is locked
+                makeDir (getFilenamePath target) all:true
+                doc.Save target
+                if actionMan.loadKeyboardFile target then
+                    logMessage ("Hotkey set GSPipeline is now active: " + target)
+                else
+                    logMessage ("ERROR: Max wouldn't load the hotkey set " + target)
+            )
+        )
+    )
+    catch
+    (
+        logMessage ("ERROR setting up hotkeys: " + (getCurrentException()))
+    )
+)
+
+-- Runs once Max has finished starting, so the macros are registered and Max has
+-- loaded its own hotkey set. Not a #postSystemStartup callback: registered from a
+-- user startup script, that one never fires on 2025 (callbacks.show lists it, it
+-- never runs). A WinForms timer only ticks once Max's main window is processing
+-- events, which is after startup, on the main thread.
+global gsAfterStartupTimer
+
+fn gsAfterStartup sender args =
+(
+    sender.Stop()
+    gsSetupHotkeys()
+    if (maxVersion())[1] >= 27000 do gsCheckCuiMenu()
+)
+
+fn gsRegisterHotkeys =
+(
+    callbacks.removeScripts id:#GSToolsHotkeys   -- the old #postSystemStartup registration
+    if gsAfterStartupTimer != undefined do gsAfterStartupTimer.Stop()
+    gsAfterStartupTimer = dotNetObject "System.Windows.Forms.Timer"
+    gsAfterStartupTimer.Interval = 1000
+    dotNet.addEventHandler gsAfterStartupTimer "Tick" gsAfterStartup
+    -- Keep the handler alive through MAXScript garbage collection until it has fired.
+    dotNet.setLifetimeControl gsAfterStartupTimer #dotnet
+    gsAfterStartupTimer.Start()
+    logMessage "Hotkey setup will run once Max has finished starting"
+)
+
+-- ============================================================================
+--  ENTRY POINT
+-- ============================================================================
+
+logMessage "====== STARTING MENU SETUP ======"
+
+-- 27000 = 3ds Max 2025, the release that replaced menuMan.
+if (maxVersion())[1] >= 27000 then
+    gsRegisterCuiMenu()
+else
+    createGSToolsMenu()
+
+gsRegisterHotkeys()
+
+-- Print a message to confirm the script has run
+logMessage "GSTools menu script has completed execution"
