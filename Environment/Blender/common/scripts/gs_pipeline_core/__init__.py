@@ -103,7 +103,6 @@ def _setup():
         except Exception as e:
             print(f"[GS Pipeline] Could not disable {addon_name}: {e}")
 
-    # The s4_* add-ons are studio-only, so the public repo doesn't have them.
     installed = {module.__name__ for module in addon_utils.modules()}
     for addon_name in _auto_enable_list():
         if addon_name not in installed:

@@ -2,12 +2,10 @@
 """
 GSPipeline startup script (Maya 2022+ / Python 3).
 
-Builds the GSPipeline menu and shelf from the explicit layout in tool_config.py,
-followed by Projects/project_config.py when the studio-only Projects/ folder is
-deployed. Groups in the config become (possibly nested) submenus; tools become
-menu items and shelf buttons, and a tool with a "hotkey" gets that shortcut.
-Nothing is inferred from filenames - the config is the source of truth for which
-tools load, their names, their icons and their shortcuts.
+Builds the GSPipeline menu and shelf from tool_config.py, plus
+Projects/project_config.py when it is deployed. Groups become (possibly nested)
+submenus; tools become menu items and shelf buttons, and a tool with a "hotkey"
+gets that shortcut.
 
 Imported at launch by GlendaStudio/startup/gs_startup.py; createMenuAndShelf()
 runs automatically at import via executeDeferred().
@@ -193,10 +191,7 @@ def _bind_hotkeys(config):
 
 
 def _load_config():
-    """tool_config's TOOLS, then Projects/project_config's when that folder is deployed.
-
-    Both are re-read on every call, to pick up edits without restarting Maya.
-    """
+    """Re-read on every call, so edits show up without restarting Maya."""
     import importlib
     import importlib.util
     import tool_config

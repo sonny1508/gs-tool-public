@@ -1,7 +1,7 @@
 """The GS Pipeline sidebar panel, and the descriptors tools use to appear in it.
 
     Category   File I/O, Review, Projects        a package under GS_Pipeline
-      Group    GS File Transfer, HW3, MGP27...   a tool or project (a module or package)
+      Group    GS File Transfer, LOD Check...    a tool or project (a module or package)
         Tab    Materials, Modeling...            one screen of it: a draw function
 
 The panel is a category bar, a group bar and a tab bar over the active tab; a

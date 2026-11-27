@@ -6,9 +6,7 @@ Defines exactly which tools appear in the GSPipeline menu/shelf, their order,
 their display names, and their icons. Nothing is inferred from filenames - if a
 script is not listed here, it is not loaded.
 
-Project tools are listed in Projects/project_config.py instead, in the same
-format, and appended after these when that folder is deployed. The public repo
-leaves Projects/ out, so never list a project tool here.
+Project tools go in Projects/project_config.py, never here.
 
 Structure
 ---------

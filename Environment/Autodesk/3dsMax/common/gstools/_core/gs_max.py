@@ -54,10 +54,9 @@ def launch(path):
     A tool's macro runs its file with python.ExecuteFile, which executes it in
     Max's __main__: one namespace shared by every file run that way. A window
     running from there looks its functions up in that namespace, where a tool
-    opened later can replace them with its own of the same name (Scene Checker
-    and HW3 Tools already share several). Loading the file again as a module
-    keeps the window on its own code, and fresh each launch, so a redeployed
-    tool needs no Max restart.
+    opened later can replace them with its own of the same name. Loading the
+    file again as a module keeps the window on its own code, and fresh each
+    launch, so a redeployed tool needs no Max restart.
     """
     name = "gstools_" + os.path.splitext(os.path.basename(path))[0]
     spec = importlib.util.spec_from_file_location(name, path)

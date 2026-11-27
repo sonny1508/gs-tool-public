@@ -1,7 +1,6 @@
 """LOD Check (Review > LOD Check): show one LOD of an asset at a time, by hiding the rest.
 
-The CM tab's LOD switching (projects/cm/vehicle.py) for any asset, not just CM
-cars, and over LOD0 to LOD6:
+Works on any asset, over LOD0 to LOD6:
 
     Scope    the collection to work on (empty: the whole scene), and Reload
     LOD      Naming: Numbers (Tree_LOD0) or Letters (Tree_LODA, A being LOD0),

@@ -9,7 +9,7 @@ Tool modules import from here instead of copying code between them:
   * Registration: classes, tool modules and shortcuts, in order and back.
 
 Only what more than one tool uses belongs here; a project's own helpers live in
-its package (e.g. projects/hw3/payloads.py).
+its package.
 """
 from __future__ import annotations
 

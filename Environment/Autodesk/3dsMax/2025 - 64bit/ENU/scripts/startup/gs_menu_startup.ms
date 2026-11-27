@@ -51,14 +51,11 @@ global gsMenuLayout = #(
     -- Add more folders here as needed
 )
 
--- Project tools are studio-only, and the public repo leaves common\gstools\projects
--- out, so their folder lives in projects_menu.ms there and is appended here when
--- that file is deployed. Never list a project tool in the layout above.
+-- Project tools are studio-only and not in the public repo.
 global gsProjectsMenuFolder = undefined
 
 fn gsAddProjectsMenu =
 (
-    -- #userScripts is <root>\<year> - 64bit\ENU\scripts; common\ sits in <root>.
     local maxRoot = pathConfig.removePathLeaf (pathConfig.removePathLeaf (pathConfig.removePathLeaf (getDir #userScripts)))
     local menuFile = pathConfig.appendPath maxRoot "common\\gstools\\projects\\projects_menu.ms"
     if doesFileExist menuFile do

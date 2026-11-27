@@ -15,8 +15,7 @@ bl_info = {
 #   object_log.py   the Log with a list of objects that check-style tools share
 #   file_io/        File I/O category: file_transfer/
 #   review/         Review category: asset_validation/, lod_check.py
-#   projects/       Projects category: one package per project. Studio-only: the
-#                   public repo leaves it out, so nothing outside it may import it.
+#   projects/       Projects category: one package per project (studio-only)
 
 import os
 

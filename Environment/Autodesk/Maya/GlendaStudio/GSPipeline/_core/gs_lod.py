@@ -6,8 +6,7 @@ Why this module exists
 ----------------------
 Maya's Edit > Level of Detail > Level of Detail Group builds one group from the
 selection *in selection order*, so a scene of ten assets means ten careful
-selections, and project tools grew their own hard-coded copies of it (HW3's
-createLodGroup only knows LODA..LODF and a single "Car_LOD_Group").
+selections.
 
 Here the grouping comes from the names instead, for any number of assets at once:
 
